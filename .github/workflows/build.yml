@@ -24,7 +24,7 @@ jobs:
       run: yarn build:win # This is your build command
 
     - name: Upload Build Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-build # Name of the artifact
         path: dist-electron/*.exe # Path to the file to upload 
