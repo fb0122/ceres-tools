@@ -1,0 +1,30 @@
+name: Build Electron App
+
+on:
+  push:
+    branches: [ "master", "main" ] # Triggers the build on push to master or main
+
+jobs:
+  build:
+    runs-on: windows-latest # Use a Windows virtual machine
+
+    steps:
+    - name: Check out git repository
+      uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18 # Use Node.js version 18
+
+    - name: Install dependencies with Yarn
+      run: yarn install
+
+    - name: Build Windows App
+      run: yarn build:win # This is your build command
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-build # Name of the artifact
+        path: dist-electron/*.exe # Path to the file to upload 

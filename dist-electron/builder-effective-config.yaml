@@ -1,0 +1,31 @@
+directories:
+  output: dist-electron
+  buildResources: build
+appId: com.ceres.tools
+productName: 股票行业成交额统计工具
+files:
+  - filter:
+      - main.js
+      - dist/**/*
+      - renderer/**/*
+      - node_modules/**/*
+mac:
+  category: public.app-category.finance
+  icon: build/icon.icns
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+linux:
+  icon: build/icon.png
+  target:
+    - target: AppImage
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+electronVersion: 37.2.4
