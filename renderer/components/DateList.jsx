@@ -90,9 +90,72 @@ export default function DateList() {
     }
   };
 
+  // 新增：处理文件上传
+  const handleUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      message.error('仅支持 Excel/CSV 文件');
+      return;
+    }
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const json = XLSX.utils.sheet_to_json(worksheet);
+      // 解析日期
+      let dateFromHeader = '';
+      if (sheetName && /\d{4}-?\d{0,2}-?\d{0,2}/.test(sheetName)) {
+        dateFromHeader = sheetName.replace(/[^\d-]/g, '');
+      }
+      // 解析数据
+      const newDataByDate = { ...dataByDate };
+      json.forEach(row => {
+        if (!row) return;
+        const industry = row['所属行业'] || row['行业'] || '未知';
+        let date = dateFromHeader || '未知日期';
+        let amount = row['成交金额'] || row['成交额'] || row['金额'] || '';
+        // 金额解析（与 UploadTable 保持一致）
+        let str = String(amount).replace(/,/g, '').replace(/\s/g, '').trim();
+        str = str.replace(/[^\d.万亿]/g, '');
+        let parsedAmount = 0;
+        if (str.endsWith('亿')) parsedAmount = parseFloat(str);
+        else if (str.endsWith('万')) parsedAmount = parseFloat(str) / 10000;
+        else if (/^\d+(\.\d+)?$/.test(str)) parsedAmount = parseFloat(str) / 1e8;
+        if (!newDataByDate[date]) newDataByDate[date] = [];
+        newDataByDate[date].push({ industry, amount: parsedAmount });
+      });
+      // 保存到本地
+      if (fs && dataFile) {
+        fs.writeFileSync(dataFile, JSON.stringify(newDataByDate, null, 2), 'utf-8');
+      }
+      setDataByDate(newDataByDate);
+      setDates(Object.keys(newDataByDate));
+      message.success('上传并保存成功');
+    } catch (err) {
+      message.error('文件解析失败');
+      console.error('解析文件出错:', err);
+    }
+  };
+
   return (
     <div>
       <Button type="primary" onClick={handleBatchExport} style={{ marginBottom: 16 }}>批量导出所有日期</Button>
+      {dates.length === 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: 'none' }}
+            id="upload-input"
+            onChange={handleUpload}
+          />
+          <Button type="dashed" onClick={() => document.getElementById('upload-input').click()}>
+            上传数据表
+          </Button>
+        </div>
+      )}
       <List
         bordered
         dataSource={dates}

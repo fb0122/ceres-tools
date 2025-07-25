@@ -1,0 +1,8 @@
+version: 1.0.0
+files:
+  - url: ceres-tools-setup-1.0.0.exe
+    sha512: VCFbUmLzrGSl/PXZnKugjw1arGCGLG4qjlvy+feN1HF0W2IVbWbpuxRmbADSSVVqwkw2b+Txgjm6lpO5jwv92Q==
+    size: 101505340
+path: ceres-tools-setup-1.0.0.exe
+sha512: VCFbUmLzrGSl/PXZnKugjw1arGCGLG4qjlvy+feN1HF0W2IVbWbpuxRmbADSSVVqwkw2b+Txgjm6lpO5jwv92Q==
+releaseDate: '2025-07-25T16:47:24.760Z'
