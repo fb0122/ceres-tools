@@ -82,7 +82,10 @@ export default function DateList() {
       rows.forEach(row => {
         const { industry, amount, code } = row;
         if (!industryMap[industry]) {
-          industryMap[industry] = { industry, code: code || industryCodeMap[industry] || '', count: 0, total: 0 };
+          // 优先使用行中的编号，然后尝试从映射中获取
+          const cleanIndustry = industry.trim();
+          const finalCode = code || industryCodeMap[industry] || industryCodeMap[cleanIndustry] || '';
+          industryMap[industry] = { industry, code: finalCode, count: 0, total: 0 };
         }
         industryMap[industry].count += 1;
         industryMap[industry].total += amount;
@@ -94,7 +97,7 @@ export default function DateList() {
       }));
       // 导出
       const exportData = result.map(row => ({
-        '行业编号': industryCodeMap[row.industry] || '',
+        '行业编号': row.code,  // 使用聚合后的编号
         '行业': row.industry,
         '股票数量': row.count,
         '成交总额（亿）': row.total,
