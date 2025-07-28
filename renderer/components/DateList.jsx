@@ -12,6 +12,8 @@ export default function DateList() {
   const [dataByDate, setDataByDate] = useState({});
   const [userDataPath, setUserDataPath] = useState('');
   const [dataFile, setDataFile] = useState('');
+  const [industryCodeMap, setIndustryCodeMap] = useState({}); // 行业编号映射
+  const [codeMapFile, setCodeMapFile] = useState(''); // 编号映射文件路径
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -19,7 +21,10 @@ export default function DateList() {
       electron.ipcRenderer.invoke('get-user-data-path').then((p) => {
         setUserDataPath(p);
         setDataFile(path ? path.join(p, 'data.json') : '');
+        setCodeMapFile(path ? path.join(p, 'industry_codes.json') : '');
+        
         if (fs && path) {
+          // 加载数据文件
           const filePath = path.join(p, 'data.json');
           if (fs.existsSync(filePath)) {
             try {
@@ -27,15 +32,36 @@ export default function DateList() {
               const local = JSON.parse(raw);
               setDataByDate(local);
               setDates(Object.keys(local));
+              console.log('初始化加载 - 日期列表:', Object.keys(local));
             } catch {
               setDataByDate({});
               setDates([]);
+            }
+          }
+          
+          // 加载行业编号映射文件
+          const codeMapPath = path.join(p, 'industry_codes.json');
+          if (fs.existsSync(codeMapPath)) {
+            try {
+              const raw = fs.readFileSync(codeMapPath, 'utf-8');
+              const codes = JSON.parse(raw);
+              setIndustryCodeMap(codes);
+              console.log('初始化加载 - 行业编号映射:', codes);
+            } catch {
+              setIndustryCodeMap({});
             }
           }
         }
       });
     }
   }, []);
+
+  // 监听dataByDate变化，自动更新dates
+  useEffect(() => {
+    const newDates = Object.keys(dataByDate);
+    console.log('dataByDate变化 - 更新日期列表:', newDates);
+    setDates(newDates);
+  }, [dataByDate]);
 
   // 批量导出所有日期的聚合数据
   const handleBatchExport = async () => {
@@ -54,9 +80,9 @@ export default function DateList() {
       // 按行业聚合
       const industryMap = {};
       rows.forEach(row => {
-        const { industry, amount } = row;
+        const { industry, amount, code } = row;
         if (!industryMap[industry]) {
-          industryMap[industry] = { industry, count: 0, total: 0 };
+          industryMap[industry] = { industry, code: code || industryCodeMap[industry] || '', count: 0, total: 0 };
         }
         industryMap[industry].count += 1;
         industryMap[industry].total += amount;
@@ -68,6 +94,7 @@ export default function DateList() {
       }));
       // 导出
       const exportData = result.map(row => ({
+        '行业编号': industryCodeMap[row.industry] || '',
         '行业': row.industry,
         '股票数量': row.count,
         '成交总额（亿）': row.total,
@@ -109,8 +136,15 @@ export default function DateList() {
       if (sheetName && /\d{4}-?\d{0,2}-?\d{0,2}/.test(sheetName)) {
         dateFromHeader = sheetName.replace(/[^\d-]/g, '');
       }
-      // 合并数据
+      // 处理数据 - 如果是同一日期则覆盖，否则合并
       const newDataByDate = { ...dataByDate };
+      
+      // 检查是否上传的是已存在的日期
+      if (dateFromHeader && newDataByDate[dateFromHeader]) {
+        console.log(`检测到上传日期 ${dateFromHeader} 已存在，将覆盖原有数据`);
+        // 清空该日期的原有数据
+        newDataByDate[dateFromHeader] = [];
+      }
       json.forEach(row => {
         if (!row) return;
         const industry = row['所属行业'] || row['行业'] || '未知';
@@ -175,19 +209,37 @@ export default function DateList() {
           console.log('金额无效或未找到金额字段');
         }
 
+        // 确保日期数组存在
         if (!newDataByDate[date]) newDataByDate[date] = [];
+        
+        // 去除行业名称前后的空格进行匹配
+        const cleanIndustry = industry.trim();
+        const code = industryCodeMap[cleanIndustry] || industryCodeMap[industry] || '';
         newDataByDate[date].push({ 
           industry, 
           rawAmount: amount,  // 保存原始金额字符串
-          amount: parsedAmount  // 保存转换后的金额（亿）
+          amount: parsedAmount,  // 保存转换后的金额（亿）
+          code: code  // 添加行业编号
         });
+        
+        // 调试信息
+        if (code) {
+          console.log(`✓ 为行业 "${industry}" 应用编号 "${code}"`);
+        } else {
+          console.log(`✗ 行业 "${industry}" 没有找到对应编号 (尝试了 "${cleanIndustry}" 和 "${industry}")`);
+        }
       });
       // 保存到本地
       if (fs && dataFile) {
         fs.writeFileSync(dataFile, JSON.stringify(newDataByDate, null, 2), 'utf-8');
       }
+      
+      // 移除有问题的去重逻辑，保持原始数据完整性
+      
+      // 更新状态
+      console.log('上传数据表后 - 新的数据:', newDataByDate);
+      
       setDataByDate(newDataByDate);
-      setDates(Object.keys(newDataByDate));
       message.success('上传并保存成功');
     } catch (err) {
       message.error('文件解析失败');
@@ -195,9 +247,171 @@ export default function DateList() {
     }
   };
 
+  // 处理编号表上传
+  const handleCodeUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (!/\.(xlsx|xls|csv)$/i.test(file.name)) {
+      message.error('仅支持 Excel/CSV 文件');
+      return;
+    }
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const json = XLSX.utils.sheet_to_json(worksheet);
+
+      // 解析编号表
+      const newCodeMap = {};
+      console.log('开始解析编号表...');
+      console.log('编号表原始数据:', json);
+      
+      json.forEach((row, index) => {
+        if (!row) return;
+        
+        console.log(`解析第 ${index + 1} 行:`, row);
+        
+        // 查找编号和行业字段
+        let code = '';
+        let industry = '';
+        
+        const keys = Object.keys(row);
+        for (const key of keys) {
+          if (key.includes('编号') || key.includes('代码') || key.includes('code')) {
+            code = row[key];
+            console.log(`找到编号字段 "${key}": ${code}`);
+          }
+          if (key.includes('行业') || key.includes('industry')) {
+            industry = row[key];
+            console.log(`找到行业字段 "${key}": ${industry}`);
+          }
+        }
+
+        if (code && industry) {
+          const cleanIndustry = industry.toString().trim();
+          const cleanCode = code.toString().trim();
+          newCodeMap[cleanIndustry] = cleanCode;
+          console.log(`✓ 添加映射: "${cleanIndustry}" -> "${cleanCode}"`);
+        } else {
+          console.log(`✗ 第 ${index + 1} 行缺少编号或行业信息`);
+        }
+      });
+
+      if (Object.keys(newCodeMap).length === 0) {
+        message.error('未找到有效的编号和行业对应关系');
+        return;
+      }
+
+      // 保存编号映射
+      if (fs && codeMapFile) {
+        fs.writeFileSync(codeMapFile, JSON.stringify(newCodeMap, null, 2), 'utf-8');
+      }
+      setIndustryCodeMap(newCodeMap);
+
+      // 不再自动更新现有数据的行业编号，只保存编号映射
+      console.log('编号映射已保存，如需更新现有数据请点击刷新按钮');
+      message.success('编号表上传成功，请点击刷新按钮更新所有数据的编号');
+      
+    } catch (err) {
+      message.error('编号表解析失败');
+      console.error('解析编号表出错:', err);
+    }
+  };
+
+  // 清空本地数据
+  const handleClearData = () => {
+    if (fs && dataFile && codeMapFile) {
+      try {
+        // 删除数据文件
+        if (fs.existsSync(dataFile)) {
+          fs.unlinkSync(dataFile);
+          console.log('已删除数据文件:', dataFile);
+        }
+        
+        // 删除编号映射文件
+        if (fs.existsSync(codeMapFile)) {
+          fs.unlinkSync(codeMapFile);
+          console.log('已删除编号映射文件:', codeMapFile);
+        }
+        
+        // 清空状态
+        setDataByDate({});
+        setIndustryCodeMap({});
+        
+        message.success('本地数据已清空');
+      } catch (err) {
+        console.error('清空数据失败:', err);
+        message.error('清空数据失败');
+      }
+    } else {
+      message.warning('无法访问本地文件系统');
+    }
+  };
+
+  // 刷新所有数据的行业编号
+  const handleRefreshCodes = () => {
+    if (!industryCodeMap || Object.keys(industryCodeMap).length === 0) {
+      message.warning('请先上传编号表');
+      return;
+    }
+
+    console.log('开始刷新所有数据的行业编号...');
+    console.log('当前编号映射:', industryCodeMap);
+    console.log('当前数据:', dataByDate);
+
+    const updatedDataByDate = { ...dataByDate };
+    let updatedCount = 0;
+
+    Object.keys(updatedDataByDate).forEach(date => {
+      console.log(`处理日期 ${date} 的数据...`);
+      updatedDataByDate[date] = updatedDataByDate[date].map(item => {
+        const newItem = { ...item };
+        const cleanIndustry = item.industry.trim();
+        
+        if (industryCodeMap[item.industry] || industryCodeMap[cleanIndustry]) {
+          const code = industryCodeMap[item.industry] || industryCodeMap[cleanIndustry];
+          newItem.code = code;
+          updatedCount++;
+          console.log(`✓ 为行业 "${item.industry}" 设置编号 "${code}"`);
+        } else {
+          console.log(`✗ 行业 "${item.industry}" 没有找到对应编号 (尝试了 "${cleanIndustry}" 和 "${item.industry}")`);
+        }
+        return newItem;
+      });
+    });
+
+    console.log(`刷新完成，共更新了 ${updatedCount} 条数据的编号`);
+
+    // 保存更新后的数据
+    if (fs && dataFile) {
+      fs.writeFileSync(dataFile, JSON.stringify(updatedDataByDate, null, 2), 'utf-8');
+    }
+    
+    setDataByDate(updatedDataByDate);
+    message.success(`刷新完成，更新了 ${updatedCount} 条数据的编号`);
+  };
+
   return (
     <div>
-      <Button type="primary" onClick={handleBatchExport} style={{ marginBottom: 16 }}>批量导出所有日期</Button>
+      {/* 调试信息 */}
+      <div style={{ marginBottom: 16, padding: 8, backgroundColor: '#f0f0f0', fontSize: '12px' }}>
+        当前日期数量: {dates.length}, 日期列表: {dates.join(', ')}
+        <br />
+        行业编号映射数量: {Object.keys(industryCodeMap).length}
+        <br />
+        行业编号映射: {JSON.stringify(industryCodeMap)}
+      </div>
+      
+      <div style={{ marginBottom: 16 }}>
+        <Button type="primary" onClick={handleBatchExport} style={{ marginRight: 8 }}>
+          批量导出所有日期
+        </Button>
+        <Button type="danger" onClick={handleClearData}>
+          清空本地数据
+        </Button>
+      </div>
       <div style={{ marginBottom: 16 }}>
         <input
           type="file"
@@ -208,6 +422,26 @@ export default function DateList() {
         />
         <Button type="dashed" onClick={() => document.getElementById('upload-input').click()}>
           上传数据表
+        </Button>
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          style={{ display: 'none' }}
+          id="code-upload-input"
+          onChange={handleCodeUpload}
+        />
+        <Button type="dashed" onClick={() => document.getElementById('code-upload-input').click()}>
+          上传编号表
+        </Button>
+        <Button 
+          type="primary" 
+          onClick={handleRefreshCodes} 
+          style={{ marginLeft: 8 }}
+          disabled={Object.keys(industryCodeMap).length === 0}
+        >
+          刷新编号
         </Button>
       </div>
       <List
