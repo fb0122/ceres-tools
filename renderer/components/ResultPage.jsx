@@ -35,21 +35,93 @@ export default function ResultPage() {
               const local = JSON.parse(raw);
               setDataByDate(local);
               if (local[date]) {
-                // 按行业聚合
+                // 按行业聚合，计算每个行业的成交总额（亿）
                 const industryMap = {};
-                local[date].forEach(row => {
-                  const { industry, amount } = row;
-                  if (!industryMap[industry]) {
-                    industryMap[industry] = { industry, count: 0, total: 0 };
+                
+                function parseAmount(val) {
+                  if (typeof val === 'number') return val;
+                  if (!val) return 0;
+                  
+                  let str = String(val).replace(/,/g, '').replace(/\s/g, '').trim();
+                  
+                  // 1. 判断单位
+                  let unit = '元';  // 默认单位为元
+                  if (str.includes('亿')) unit = '亿';
+                  else if (str.includes('万')) unit = '万';
+                  
+                  // 2. 提取纯数字部分
+                  let numStr = str.replace(/[^\d.]/g, '');
+                  let num = parseFloat(numStr);
+                  
+                  // 3. 根据单位转换为亿
+                  let result = 0;
+                  if (!isNaN(num)) {
+                    switch (unit) {
+                      case '亿':
+                        result = num;
+                        break;
+                      case '万':
+                        result = num / 10000;
+                        break;
+                      case '元':
+                        result = num / 1e8;
+                        break;
+                    }
                   }
+                  
+                  // 打印调试信息
+                  console.log('详情页 - 原始金额:', val, '单位:', unit, '数值:', num, '转换后（亿）:', result);
+                  
+                  return result;
+                }
+                
+                // 遍历数据，按行业聚合
+                local[date].forEach(row => {
+                  const { industry, amount, rawAmount } = row;
+                  
+                  // 初始化行业数据
+                  if (!industryMap[industry]) {
+                    industryMap[industry] = { 
+                      industry, 
+                      count: 0,  // 股票数量
+                      total: 0,  // 成交总额（亿）
+                      details: []  // 调试用：记录每只股票的金额
+                    };
+                  }
+                  
+                  // 计数
                   industryMap[industry].count += 1;
-                  industryMap[industry].total += amount;
+                  
+                  // 优先使用已解析的 amount，如果为 0 则重新解析 rawAmount
+                  let val = (typeof amount === 'number' && amount > 0) ? amount : parseAmount(rawAmount);
+                  
+                  // 累加到行业总额
+                  industryMap[industry].total += val;
+                  
+                  // 记录调试信息
+                  industryMap[industry].details.push({
+                    rawAmount,
+                    parsedAmount: val
+                  });
                 });
-                const result = Object.values(industryMap).map(item => ({
-                  ...item,
-                  total: item.total.toFixed(2),
-                  date: date,
-                }));
+                
+                // 转换为表格数据
+                const result = Object.values(industryMap).map(item => {
+                  // 打印每个行业的详细信息
+                  console.log('行业聚合 -', item.industry, {
+                    股票数: item.count,
+                    成交总额: item.total.toFixed(2),
+                    明细: item.details
+                  });
+                  
+                  return {
+                    industry: item.industry,
+                    count: item.count,
+                    total: item.total.toFixed(2),
+                    date: date
+                  };
+                });
+                
                 setTableData(result);
               } else {
                 setTableData([]);

@@ -2,12 +2,13 @@ const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 module.exports = {
-  mode: 'development',
+  mode: process.env.NODE_ENV === 'development' ? 'development' : 'production',
   entry: './renderer/index.js',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'renderer.bundle.js',
-    publicPath: '/',
+    publicPath: './',
+    clean: true,
   },
   module: {
     rules: [
@@ -33,6 +34,8 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({
       template: './renderer/index.html',
+      filename: 'index.html',
+      inject: true,
     }),
   ],
   devServer: {
@@ -41,6 +44,10 @@ module.exports = {
     },
     port: 3000,
     hot: true,
-    open: true,
+    open: false,
+    historyApiFallback: true,
+    devMiddleware: {
+      publicPath: '/',
+    }
   },
 }; 

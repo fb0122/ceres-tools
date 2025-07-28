@@ -90,7 +90,7 @@ export default function DateList() {
     }
   };
 
-  // 新增：处理文件上传
+  // 处理文件上传
   const handleUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -109,22 +109,78 @@ export default function DateList() {
       if (sheetName && /\d{4}-?\d{0,2}-?\d{0,2}/.test(sheetName)) {
         dateFromHeader = sheetName.replace(/[^\d-]/g, '');
       }
-      // 解析数据
+      // 合并数据
       const newDataByDate = { ...dataByDate };
       json.forEach(row => {
         if (!row) return;
         const industry = row['所属行业'] || row['行业'] || '未知';
         let date = dateFromHeader || '未知日期';
-        let amount = row['成交金额'] || row['成交额'] || row['金额'] || '';
-        // 金额解析（与 UploadTable 保持一致）
-        let str = String(amount).replace(/,/g, '').replace(/\s/g, '').trim();
-        str = str.replace(/[^\d.万亿]/g, '');
+        
+        // 查找金额字段：支持多种可能的字段名
+        let amount = '';
+        const possibleKeys = Object.keys(row);
+        for (const key of possibleKeys) {
+          if (key.includes('金额') || key.includes('成交额') || key.includes('成交金额')) {
+            amount = row[key];
+            console.log('找到金额字段:', key, '值:', amount);
+            break;
+          }
+        }
+
+        // 打印原始数据，帮助排查
+        console.log('原始行数据:', row);
+        console.log('提取到的金额字段:', amount);
+
+        // 金额解析修正：全部按"亿"为单位
         let parsedAmount = 0;
-        if (str.endsWith('亿')) parsedAmount = parseFloat(str);
-        else if (str.endsWith('万')) parsedAmount = parseFloat(str) / 10000;
-        else if (/^\d+(\.\d+)?$/.test(str)) parsedAmount = parseFloat(str) / 1e8;
+        
+        // 如果金额字段非空，尝试解析
+        if (amount && amount.toString().trim() !== '') {
+          let str = String(amount).replace(/,/g, '').replace(/\s/g, '').trim();
+          
+          // 1. 判断单位
+          let unit = '元';  // 默认单位为元
+          if (str.includes('亿')) unit = '亿';
+          else if (str.includes('万')) unit = '万';
+          
+          // 2. 提取纯数字部分
+          let numStr = str.replace(/[^\d.]/g, '');
+          let num = parseFloat(numStr);
+          
+          // 3. 根据单位转换为亿
+          if (!isNaN(num)) {
+            switch (unit) {
+              case '亿':
+                parsedAmount = num;
+                break;
+              case '万':
+                parsedAmount = num / 10000;
+                break;
+              case '元':
+                parsedAmount = num / 1e8;
+                break;
+            }
+          }
+
+          // 打印调试信息
+          console.log('金额解析过程:', {
+            原始金额: amount,
+            清理后: str,
+            单位: unit,
+            数值字符串: numStr,
+            解析数值: num,
+            转换后亿: parsedAmount
+          });
+        } else {
+          console.log('金额无效或未找到金额字段');
+        }
+
         if (!newDataByDate[date]) newDataByDate[date] = [];
-        newDataByDate[date].push({ industry, amount: parsedAmount });
+        newDataByDate[date].push({ 
+          industry, 
+          rawAmount: amount,  // 保存原始金额字符串
+          amount: parsedAmount  // 保存转换后的金额（亿）
+        });
       });
       // 保存到本地
       if (fs && dataFile) {
@@ -142,20 +198,18 @@ export default function DateList() {
   return (
     <div>
       <Button type="primary" onClick={handleBatchExport} style={{ marginBottom: 16 }}>批量导出所有日期</Button>
-      {dates.length === 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <input
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            style={{ display: 'none' }}
-            id="upload-input"
-            onChange={handleUpload}
-          />
-          <Button type="dashed" onClick={() => document.getElementById('upload-input').click()}>
-            上传数据表
-          </Button>
-        </div>
-      )}
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          style={{ display: 'none' }}
+          id="upload-input"
+          onChange={handleUpload}
+        />
+        <Button type="dashed" onClick={() => document.getElementById('upload-input').click()}>
+          上传数据表
+        </Button>
+      </div>
       <List
         bordered
         dataSource={dates}

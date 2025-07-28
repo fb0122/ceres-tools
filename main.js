@@ -11,6 +11,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      webSecurity: false,
     },
   });
 
@@ -18,8 +19,7 @@ function createWindow() {
     win.loadURL('http://localhost:3000');
     win.webContents.openDevTools();
   } else {
-    win.loadFile(path.join(__dirname, 'renderer/index.html'));
-    // win.webContents.openDevTools(); // 如需调试可取消注释
+    win.loadFile(path.join(__dirname, 'dist/index.html'));
   }
 }
 
