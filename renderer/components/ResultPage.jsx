@@ -245,7 +245,44 @@ export default function ResultPage() {
       '成交总额（亿）': row.total,
       '日期': row.date,
     }));
+    
+    // 创建工作表并设置列格式
     const ws = XLSX.utils.json_to_sheet(exportData);
+    
+    // 设置列格式：数字列保持数字格式，文本列保持文本格式
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const colLetter = XLSX.utils.encode_col(col);
+      const headerCell = ws[colLetter + '1'];
+      if (headerCell) {
+        const headerValue = headerCell.v;
+        // 为数字列设置数字格式
+        if (headerValue === '行业编号' || headerValue === '股票数量' || headerValue === '成交总额（亿）') {
+          for (let row = range.s.r + 1; row <= range.e.r; row++) {
+            const cellAddress = colLetter + (row + 1);
+            const cell = ws[cellAddress];
+            if (cell) {
+              // 确保数字列的值是数字类型
+              if (headerValue === '行业编号' || headerValue === '股票数量') {
+                const numValue = parseFloat(cell.v);
+                if (!isNaN(numValue)) {
+                  cell.t = 'n'; // 数字类型
+                  cell.v = numValue;
+                }
+              } else if (headerValue === '成交总额（亿）') {
+                const numValue = parseFloat(cell.v);
+                if (!isNaN(numValue)) {
+                  cell.t = 'n'; // 数字类型
+                  cell.v = numValue;
+                  cell.z = '#,##0.00'; // 数字格式：保留两位小数
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, date);
     const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
